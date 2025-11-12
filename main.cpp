@@ -2,6 +2,8 @@
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <cmath>
+#include <cstdlib>
+#include<ctime>
 
 #include <iostream>
 
@@ -21,9 +23,11 @@ const char* fragmentShaderSource = R"glsl(
     #version 330 core
     out vec4 FragColor;
 
+    uniform vec3 u_Color;
+
     void main()
     {
-        FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        FragColor = vec4(u_Color, 1.0f);
     }
 )glsl";
 
@@ -51,6 +55,84 @@ void checkProgramLinking(unsigned int program) {
     }
 }
 
+struct Ball {
+    float x,y;
+    float vel_x, vel_y;
+    float radius;
+    float red,green,blue;
+
+    Ball(float r, float start_x, float start_y, float start_vel_x = 0.0f, float start_vel_y = 0.0f) {
+        radius = r;
+        x = start_x;
+        y = start_y;
+        vel_x = start_vel_x;
+        vel_y = start_vel_y;
+
+        red = 0.5f + ((float)rand() / (float)RAND_MAX) * 0.5f;
+        blue = 0.5f + ((float)rand() / (float)RAND_MAX) * 0.5f;
+        green = 0.5f + ((float)rand() / (float)RAND_MAX) * 0.5f;
+    }
+};
+
+void updateBallPhysics(Ball& ball, float deltaTime) {
+    float gravity = -1.0f;
+    float damping = -0.9f;
+    float container_radius = 1.0f;
+
+    ball.vel_y += gravity * deltaTime;
+
+    ball.x += ball.vel_x * deltaTime;
+    ball.y += ball.vel_y * deltaTime;
+
+    float dist_sq = ball.x * ball.x + ball.y * ball.y;
+
+    float max_dist = container_radius - ball.radius;
+    float max_dist_sq = max_dist * max_dist;
+
+    if (dist_sq > max_dist_sq) {
+        float dist = std::sqrt(dist_sq);
+
+        float n_x = ball.x/dist;
+        float n_y = ball.y/dist;
+
+        ball.x = n_x * max_dist;
+        ball.y = n_y * max_dist;
+
+        float dot = ball.vel_x * n_x + ball.vel_y * n_y;
+
+        float v_normal_x = dot * n_x;
+        float v_normal_y = dot * n_y;
+        float v_tangent_x = ball.vel_x - v_normal_x;
+        float v_tangent_y = ball.vel_y - v_normal_y;
+
+        v_normal_x *= damping;
+        v_normal_y *= damping;
+
+        ball.vel_x = v_tangent_x + v_normal_x;
+        ball.vel_y = v_tangent_y + v_normal_y;
+    }
+
+    // if (ball.y - ball.radius < -1.0f) {
+    //     ball.y = -1.0f + ball.radius;
+    //     ball.vel_y *= damping;
+    // }
+    //
+    // if (ball.y + ball.radius > 1.0f) {
+    //     ball.y = 1.0f - ball.radius;
+    //     ball.vel_y *= damping;
+    // }
+    //
+    // if (ball.x - ball.radius > 1.0f) {
+    //     ball.x = 1.0f - ball.radius;
+    //     ball.vel_x *= damping;
+    // }
+    //
+    // if (ball.x - ball.radius < -1.0f) {
+    //     ball.x = -1.0f + ball.radius;
+    //     ball.vel_x *= damping;
+    // }
+}
+
 int main() {
     if (!glfwInit()) {
         std::cout << "Failed to initialise GLFW" << std::endl;
@@ -62,7 +144,7 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(800, 800, "Hello World!", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(800, 800, "Balls", NULL, NULL);
 
     if (window == NULL) {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -107,16 +189,25 @@ int main() {
     float r = 0.1f;
     int num_segments = 50;
 
-    float ball_x = 0.0f;
-    float ball_y = 0.0f;
-    float ball_velocity_y = 0.0f;
-    float gravity = -1.0f;
-    float ball_radius = r;
+    std::vector<Ball> balls;
+
+    // balls.push_back(Ball(0.1f, 0.0f, 0.5f));
+    // balls.push_back(Ball(0.1f, -0.5f, 0.8f, 0.5f, 0.0f));
+    // balls.push_back(Ball(0.1f, 0.5f, 0.2f, -0.3f, 0.5f));
+
+    for (int i = 0; i < 15; i++) {
+        float randomxPos = (rand() / (float)RAND_MAX) -0.5f;
+        float randomyPos = (rand() / (float)RAND_MAX) -0.5f;
+        float randomxVel = (rand() / (float)RAND_MAX) -0.5f;
+        float randomyVel = (rand() / (float)RAND_MAX) -0.5f;
+
+        balls.push_back(Ball(r, randomxPos, randomyPos, randomxVel, randomyVel));
+    }
 
     float lastFrameTime = 0.0f;
 
     int offsetLocation = glGetUniformLocation(shaderProgram, "u_Offset");
-
+    int colorLocation = glGetUniformLocation(shaderProgram, "u_Color");
 
     std::vector<float> vertices;
 
@@ -164,28 +255,21 @@ int main() {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
 
-        ball_velocity_y += gravity * deltaTime;
-
-        ball_y += ball_velocity_y * deltaTime;
-
-        if (ball_y - ball_radius < -1.0f) {
-            ball_y = -1.0f + ball_radius;
-            ball_velocity_y *= -0.8f;
-
-            if (std::abs(ball_velocity_y) < 0.01f) {
-                ball_velocity_y = 0.0f;
-            }
-        }
-
         glClearColor(0.1f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-
-        glUniform2f(offsetLocation, ball_x, ball_y);
 
         glUseProgram(shaderProgram);
         glBindVertexArray(VAO);
 
-        glDrawArrays(GL_TRIANGLE_FAN, 0, totalVertices);
+        for (Ball& ball : balls) {
+            updateBallPhysics(ball, deltaTime);
+
+            glUniform2f(offsetLocation, ball.x, ball.y);
+
+            glUniform3f(colorLocation, ball.red, ball.green, ball.blue);
+
+            glDrawArrays(GL_TRIANGLE_FAN, 0, totalVertices);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
